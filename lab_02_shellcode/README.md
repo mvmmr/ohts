@@ -387,14 +387,20 @@ int main()
 }
 ```
 
-To compile this program, we need to pass some special flags to disable stack
+To compile this program, we need to pass the flags `-fno-stack-protector -z execstack -no-pie` to disable stack
 protections. Without these flags, the test program will get a segmentation
-fault. It also to be compiled to target 32-bit machines as the assembly code we
-have written is 32-bit.
+fault.
+
+It also to be compiled to target 32-bit machines using the flag `-m32` as the assembly code we
+have written is 32-bit. Compiling to 32-bit also requires the package `gcc-multilib`.
 
 ```console
 $ gcc test.c -o test.out -m32 -fno-stack-protector -z execstack -no-pie
 ```
+
+When we run `test.c`, we can now get a shell.
+
+![Running test.c](img/final_shell.png)
 
 ---
 
